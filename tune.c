@@ -3,7 +3,7 @@
 
     This file is part of the tune-params code repository.
 
-    Arb is free software: you can redistribute it and/or modify it under
+    tune-params is free software: you can redistribute it and/or modify it under
     the terms of the GNU Lesser General Public License (LGPL) as published
     by the Free Software Foundation; either version 2.1 of the License, or
     (at your option) any later version.  See <http://www.gnu.org/licenses/>.
@@ -11,6 +11,18 @@
 
 #include "acb_dirichlet.h"
 
+static void
+check_arb_accuracy(const arb_t x, const char *name)
+{
+    slong required_bits = 16;
+    slong bits = arb_rel_accuracy_bits(x);
+    if (bits < required_bits)
+    {
+        flint_printf("%s has only %ld relative accuracy bits\n",
+                name, bits);
+        flint_abort();
+    }
+}
 
 static void
 _arb_div_si_si(arb_t res, slong a, slong b, slong prec)
@@ -51,6 +63,7 @@ typedef struct
     slong Hnum;
     slong Hden;
     slong Ns_max;
+    fmpz T;
     arb_struct t0;
 }
 agg_struct;
@@ -62,12 +75,14 @@ static void
 agg_init(agg_t agg)
 {
     arb_init(&agg->t0);
+    fmpz_init(&agg->T);
 }
 
 static void
 agg_clear(agg_t agg)
 {
     arb_clear(&agg->t0);
+    fmpz_clear(&agg->T);
 }
 
 static void
@@ -97,13 +112,15 @@ agg_printf(const agg_t p)
     flint_printf("K = %ld\n", p->K);
     flint_printf("sigma_grid = %ld\n", p->sigma_grid);
     flint_printf("sigma_interp = %ld\n", p->sigma_interp);
-    flint_printf("prec = %ld\n", p->prec);
+    flint_printf("prec (for error estimation) = %ld\n", p->prec);
+    flint_printf("prec (for zeros computation) = %ld\n",
+            p->prec + fmpz_sizeinbase(&p->T, 2));
     flint_printf("h = %ld/%ld = %lf\n",
             p->hnum, p->hden, p->hnum / (double) p->hden);
     flint_printf("H = %ld/%ld = %lf\n",
             p->Hnum, p->Hden, p->Hnum / (double) p->Hden);
     flint_printf("Ns_max = %ld\n", p->Ns_max);
-    flint_printf("t0 = "); arb_printd(&p->t0, 30); flint_printf("\n");
+    flint_printf("T = "); fmpz_print(&p->T); flint_printf("\n");
 }
 
 /* approximate interpolation error */
@@ -122,6 +139,7 @@ _get_interpolation_error(arb_t res, const agg_t p)
     acb_dirichlet_platt_bound_C3(
             c3, &p->t0, p->A, H, p->Ns_max, p->prec);
     arb_add(res, c1, c3, p->prec);
+    check_arb_accuracy(res, "interpolation error");
 
     arb_clear(c1);
     arb_clear(c3);
@@ -130,6 +148,9 @@ _get_interpolation_error(arb_t res, const agg_t p)
     return 1;
 }
 
+/*
+ * Returns nonzero on success.
+ */
 static int
 _get_K_truncation_error(arb_t res, const agg_t p)
 {
@@ -147,6 +168,7 @@ _get_K_truncation_error(arb_t res, const agg_t p)
     arb_sub_ui(c, c, 1, p->prec);
     acb_dirichlet_platt_lemma_B2(res, p->K, h, xi, p->prec);
     arb_mul(res, res, c, p->prec);
+    check_arb_accuracy(res, "K truncation error");
 
     arb_clear(h);
     arb_clear(c);
@@ -155,6 +177,9 @@ _get_K_truncation_error(arb_t res, const agg_t p)
     return 1;
 }
 
+/*
+ * Returns nonzero on success.
+ */
 static int
 _get_J_truncation_error(arb_t res, const agg_t p)
 {
@@ -162,6 +187,7 @@ _get_J_truncation_error(arb_t res, const agg_t p)
     arb_init(h);
     _arb_div_si_si(h, p->hnum, p->hden, p->prec);
     acb_dirichlet_platt_lemma_B1(res, p->sigma_grid, &p->t0, h, p->J, p->prec);
+    check_arb_accuracy(res, "J truncation error");
     arb_clear(h);
     return 1;
 }
@@ -170,10 +196,8 @@ _get_J_truncation_error(arb_t res, const agg_t p)
 static int
 _get_sum_of_errors(arb_t res, const agg_t p)
 {
-    slong i, k;
     arb_t x, err, ratio, c, xi, h;
     arb_t min_err, max_err, total_err;
-    slong N = p->A * p->B;
     const int v = 0;
 
     arb_init(x);
@@ -191,43 +215,13 @@ _get_sum_of_errors(arb_t res, const agg_t p)
     arb_mul_2exp_si(xi, xi, -1);
 
     if (v) flint_printf("(2) Adding Lemma A.5 truncation error... ");
-    arb_zero(max_err);
-    for (k = 0; k < p->K; k++)
-    {
-        acb_dirichlet_platt_lemma_A5(err, p->B, h, k, p->prec);
-        arb_max(max_err, max_err, err, p->prec);
-        if (!k) arb_set(min_err, err);
-        arb_min(min_err, min_err, err, p->prec);
-    }
-    arb_add(total_err, total_err, min_err, p->prec);
-    if (v) {arb_printd(min_err, 20); flint_printf("\n");}
+    acb_dirichlet_platt_lemma_A5(err, p->B, h, 0, p->prec);
+    arb_add(total_err, total_err, err, p->prec);
 
     if (v) flint_printf("(4) Adding Lemma A.7 truncation error... ");
-    arb_zero(max_err);
-    for (k = 0; k < p->K; k++)
-    {
-        acb_dirichlet_platt_lemma_A7(
-                err, p->sigma_grid, &p->t0, h, k, p->A, p->prec);
-        arb_max(max_err, max_err, err, p->prec);
-        if (!k) arb_set(min_err, err);
-        arb_min(min_err, min_err, err, p->prec);
-    }
-    arb_add(total_err, total_err, min_err, p->prec);
-    if (v) {arb_printd(min_err, 20); flint_printf("\n");}
-
-    if (v) flint_printf("Adding Lemma 3.2 approximation error... ");
-    arb_zero(max_err);
-    for (i = 0; i < N/2 + 1; i++)
-    {
-        arb_set_si(x, i);
-        arb_div_si(x, x, p->B, p->prec);
-        acb_dirichlet_platt_lemma_32(err, h, &p->t0, x, p->prec);
-        arb_max(max_err, max_err, err, p->prec);
-        if (!i) arb_set(min_err, err);
-        arb_min(min_err, min_err, err, p->prec);
-    }
-    arb_add(total_err, total_err, min_err, p->prec);
-    if (v) {arb_printd(min_err, 20); flint_printf("\n");}
+    acb_dirichlet_platt_lemma_A7(
+            err, p->sigma_grid, &p->t0, h, 0, p->A, p->prec);
+    arb_add(total_err, total_err, err, p->prec);
 
     if (v) flint_printf("Adding Lemma B.1 truncation error for finite J... ");
     acb_dirichlet_platt_lemma_B1(err, p->sigma_grid, &p->t0, h, p->J, p->prec);
@@ -254,6 +248,7 @@ _get_sum_of_errors(arb_t res, const agg_t p)
     if (v) {arb_printd(err, 20); flint_printf("\n");}
 
     arb_set(res, total_err);
+    check_arb_accuracy(res, "sum of grid errors");
 
     arb_clear(x);
     arb_clear(err);
@@ -309,6 +304,7 @@ _update_interpolation_sigma(const agg_t agg)
         }
         acb_dirichlet_platt_i_bound(c1,
                 &p->t0, p->A, H, p->sigma_interp, p->prec);
+        check_arb_accuracy(c1, "i bound in interpolation sigma update");
         arb_get_mag(m, c1);
         if (isfirst || mag_cmp(m, best_m) < 0)
         {
@@ -603,7 +599,7 @@ _get_params(fmpz_t T, slong *A, slong *B, slong *prec,
     acb_init(z+1);
 
     /* Default prec. */
-    *prec = 400;
+    *prec = 64;
 
     /* Default max number of interpolation points on either side. */
     *Ns_max = 300;
@@ -628,11 +624,16 @@ _get_params(fmpz_t T, slong *A, slong *B, slong *prec,
     *A = 1 << Abits;
     *B = 1 << Bbits;
 
-    /* Let T be the integer at the center of the evaluation grid.
+    /*
+     * Let T be the integer at the center of the evaluation grid.
      * The reason to add B/4 instead of B/2 is that only about the
-     * middle half of the grid points have enough precision to isolate zeros. */
+     * middle half of the grid points have enough precision to isolate zeros.
+     * If you want to increase the probability of finding the
+     * first requested zero at the expense of the number of zeros
+     * found, then don't add anything to T.
+     */
     _arb_get_lbound_fmpz(T, g, *prec);
-    fmpz_add_ui(T, T, (*B)/4);
+    /* fmpz_add_ui(T, T, (*B)/4); */
 
     /* According to Platt, J should be like the square root of the height.
      * We use a + b*sqrt(T) where a and b are chosen to yield empirically
@@ -665,21 +666,19 @@ void run(const fmpz_t n, slong k, slong m)
     slong Jmax;
     agg_t p, prev;
     arb_t err, interpolation_error;
-    fmpz_t T;
     const slong itermax = 10;
     slong iter;
 
     arb_init(err);
     arb_init(interpolation_error);
-    fmpz_init(T);
     agg_init(p);
     agg_init(prev);
 
     _get_params(
-            T, &p->A, &p->B, &p->prec, &p->sigma_grid,
+            &p->T, &p->A, &p->B, &p->prec, &p->sigma_grid,
             &p->K, &p->J, &Jmax, &p->hnum, &p->hden,
             &p->sigma_interp, &p->Hnum, &p->Hden, &p->Ns_max, n);
-    arb_set_fmpz(&p->t0, T);
+    arb_set_fmpz(&p->t0, &p->T);
 
     flint_printf("parameter values:\n");
     agg_printf(p);
@@ -800,9 +799,10 @@ void run(const fmpz_t n, slong k, slong m)
 
     flint_printf("\n");
 
+finish:
+
     arb_clear(err);
     arb_clear(interpolation_error);
-    fmpz_clear(T);
     agg_clear(p);
     agg_clear(prev);
 }
