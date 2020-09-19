@@ -101,6 +101,28 @@ agg_set(agg_t res, const agg_t p)
     res->Hden = p->Hden;
     res->Ns_max = p->Ns_max;
     arb_set(&res->t0, &p->t0);
+    fmpz_set(&res->T, &p->T);
+}
+
+static void
+agg_print_table_header()
+{
+    flint_printf("A\tB\tnsmax\tK\tgrid\tinterp\tlogT\tlogJ\th\tH\n");
+}
+
+static void
+agg_print_table_row(const agg_t p)
+{
+    arb_t x;
+    arb_init(x);
+    flint_printf("%ld\t%ld\t%ld\t%ld\t%ld\t%ld\t",
+            p->A, p->B, p->Ns_max, p->K, p->sigma_grid, p->sigma_interp);
+    arb_log(x, &p->t0, p->prec);
+    flint_printf("%lf\t", arf_get_d(arb_midref(x), ARF_RND_NEAR));
+    flint_printf("%lf\t", log(p->J));
+    flint_printf("%lf\t", p->hnum / (double) p->hden);
+    flint_printf("%lf\n", p->Hnum / (double) p->Hden);
+    arb_clear(x);
 }
 
 static void
@@ -580,23 +602,18 @@ _update_grid_sigma(const agg_t agg)
 
 /* all params are output except for n which indicates nth zero */
 static void
-_get_params(fmpz_t T, slong *A, slong *B, slong *prec,
-        slong *sigma_grid, slong *K, slong *J, slong *Jmax,
+_get_params_A16_n1e17(fmpz_t T, slong *A, slong *B, slong *prec,
+        slong *sigma_grid, slong *K, slong *J,
         slong *hnum, slong *hden,
         slong *sigma_interp, slong *Hnum, slong *Hden, slong *Ns_max,
         const fmpz_t n)
 {
     fmpz_t k;
-    arb_t g, rho, pi;
-    acb_struct z[2];
+    arb_t g;
     slong Abits, Bbits;
 
     fmpz_init(k);
     arb_init(g);
-    arb_init(rho);
-    arb_init(pi);
-    acb_init(z+0);
-    acb_init(z+1);
 
     /* Default prec. */
     *prec = 64;
@@ -608,38 +625,65 @@ _get_params(fmpz_t T, slong *A, slong *B, slong *prec,
      * it's predicted to fall between g(n-2) and g(n-1). */
     fmpz_sub_ui(k, n, 2);
     acb_dirichlet_gram_point(g, k, NULL, NULL, *prec);
-
-    /*
-     * Estimate the local density of Riemann zeta zeros near height g.
-     * Currently unused, but maybe in the future this could
-     * be used to set A and B.
-     */
-    arb_const_pi(pi, *prec);
-    acb_set_arb(z, g);
-    acb_dirichlet_hardy_theta(z, z, NULL, NULL, 2, *prec);
-    arb_div(rho, acb_realref(z+1), pi, *prec);
+    _arb_get_lbound_fmpz(T, g, *prec);
 
     Abits = 4;
     Bbits = 13;
     *A = 1 << Abits;
     *B = 1 << Bbits;
 
-    /*
-     * Let T be the integer at the center of the evaluation grid.
-     * The reason to add B/4 instead of B/2 is that only about the
-     * middle half of the grid points have enough precision to isolate zeros.
-     * If you want to increase the probability of finding the
-     * first requested zero at the expense of the number of zeros
-     * found, then don't add anything to T.
-     */
-    _arb_get_lbound_fmpz(T, g, *prec);
-    /* fmpz_add_ui(T, T, (*B)/4); */
+    *J = 74215077;
+    *K = 74;
 
-    /* According to Platt, J should be like the square root of the height.
-     * We use a + b*sqrt(T) where a and b are chosen to yield empirically
-     * acceptable values of J at a small and a large value of T. */
-    fmpz_sqrt(k, T);
-    *Jmax = 1000 + 4*fmpz_get_ui(k);
+    *hnum = 662;
+    *hden = 4;
+
+    *sigma_grid = 4005;
+
+    /*
+    *Hnum = 48;
+    *Hden = 64;
+    *sigma_interp = 19;
+    */
+    *Hnum = 40;
+    *Hden = 64;
+    *sigma_interp = 23;
+
+    fmpz_clear(k);
+    arb_clear(g);
+}
+
+/* all params are output except for n which indicates nth zero */
+static void
+_get_params_A16_n1e22(fmpz_t T, slong *A, slong *B, slong *prec,
+        slong *sigma_grid, slong *K, slong *J,
+        slong *hnum, slong *hden,
+        slong *sigma_interp, slong *Hnum, slong *Hden, slong *Ns_max,
+        const fmpz_t n)
+{
+    fmpz_t k;
+    arb_t g;
+    slong Abits, Bbits;
+
+    fmpz_init(k);
+    arb_init(g);
+
+    /* Default prec. */
+    *prec = 64;
+
+    /* Default max number of interpolation points on either side. */
+    *Ns_max = 300;
+
+    /* Estimate the height of the nth zero using gram points --
+     * it's predicted to fall between g(n-2) and g(n-1). */
+    fmpz_sub_ui(k, n, 2);
+    acb_dirichlet_gram_point(g, k, NULL, NULL, *prec);
+    _arb_get_lbound_fmpz(T, g, *prec);
+
+    Abits = 4;
+    Bbits = 13;
+    *A = 1 << Abits;
+    *B = 1 << Bbits;
 
     *J = 19957244503;
     *K = 63;
@@ -655,162 +699,114 @@ _get_params(fmpz_t T, slong *A, slong *B, slong *prec,
 
     fmpz_clear(k);
     arb_clear(g);
-    arb_clear(rho);
-    arb_clear(pi);
-    acb_clear(z+0);
-    acb_clear(z+1);
 }
 
-void run(const fmpz_t n, slong k, slong m)
+
+void run(agg_t res, const agg_t p_initial, const fmpz_t n, slong k, slong m)
 {
     slong Jmax;
     agg_t p, prev;
-    arb_t err, interpolation_error;
-    const slong itermax = 10;
+    arb_t err, interpolation_error, g;
+    const slong itermax = 100;
     slong iter;
+    fmpz_t u;
 
     arb_init(err);
     arb_init(interpolation_error);
+    arb_init(g);
+    fmpz_init(u);
     agg_init(p);
     agg_init(prev);
 
-    _get_params(
-            &p->T, &p->A, &p->B, &p->prec, &p->sigma_grid,
-            &p->K, &p->J, &Jmax, &p->hnum, &p->hden,
-            &p->sigma_interp, &p->Hnum, &p->Hden, &p->Ns_max, n);
+    agg_set(p, p_initial);
+
+    /* set T, t0, Jmax */
+    fmpz_sub_ui(u, n, 2);
+    acb_dirichlet_gram_point(g, u, NULL, NULL, p->prec);
+    _arb_get_lbound_fmpz(&p->T, g, p->prec);
     arb_set_fmpz(&p->t0, &p->T);
+    fmpz_sqrt(u, &p->T);
+    Jmax = 1000 + 4*fmpz_get_ui(u);
 
-    flint_printf("parameter values:\n");
-    agg_printf(p);
-    flint_printf("\n");
-
-    flint_printf("updating interpolation related parameters...\n");
     for (iter = 1; iter <= itermax; iter++)
     {
-        flint_printf("updating H (iter=%wd/%wd)...\n", iter, itermax);
+        flint_fprintf(stderr, "*");
+        agg_set(prev, p);
+
         p->Hnum = _update_Hnum(p);
         _get_interpolation_error(interpolation_error, p);
-        flint_printf("\n");
-        flint_printf("H = %wd / %wd\n", p->Hnum, p->Hden);
-        flint_printf("interpolation error estimate = ");
-        arb_printd(interpolation_error, 20); flint_printf("\n");
-        flint_printf("n = %wd*10^%wd\n", k, m);
 
-        flint_printf("updating interpolation sigma (iter=%wd/%wd)...\n",
-                iter, itermax);
         p->sigma_interp = _update_interpolation_sigma(p);
         _get_interpolation_error(interpolation_error, p);
-        flint_printf("\n");
-        flint_printf("sigma_interp = %wd\n", p->sigma_interp);
-        flint_printf("interpolation error estimate = ");
-        arb_printd(interpolation_error, 20); flint_printf("\n");
-        flint_printf("n = %wd*10^%wd\n", k, m);
 
-        if (iter > 1 &&
-            p->Hnum == prev->Hnum &&
+        if (p->Hnum == prev->Hnum &&
             p->sigma_interp == prev->sigma_interp)
         {
             break;
         }
-
-        agg_set(prev, p);
     }
-    flint_printf("\n");
 
-    /* Requires the interpolation error. */
-    flint_printf("updating J (iter=%wd/%wd)...\n", 0, itermax);
     p->J = _binary_search_J(p, interpolation_error, 1, Jmax);
     _get_sum_of_errors(err, p);
-    flint_printf("\n");
-    flint_printf("J = %wd\n", p->J);
-    flint_printf("err = "); arb_printd(err, 20); flint_printf("\n");
-    flint_printf("n = %wd*10^%wd\n", k, m);
 
-    /* Requires the interpolation error. */
-    flint_printf("updating K (iter=%wd/%wd)...\n", 0, itermax);
     p->K = _binary_search_K(p, interpolation_error, 1, 500);
     _get_sum_of_errors(err, p);
-    flint_printf("\n");
-    flint_printf("K = %wd\n", p->K);
-    flint_printf("err = "); arb_printd(err, 20); flint_printf("\n");
-    flint_printf("n = %wd*10^%wd\n", k, m);
 
-    flint_printf("updating multieval related parameters...\n");
     for (iter = 1; iter <= itermax; iter++)
     {
-        flint_printf("updating h (iter=%wd/%wd)...\n", iter, itermax);
+        flint_fprintf(stderr, ".");
+        agg_set(prev, p);
+
         p->hnum = _update_hnum(p);
         _get_sum_of_errors(err, p);
-        flint_printf("\n");
-        flint_printf("h = %wd / %wd\n", p->hnum, p->hden);
-        flint_printf("err = "); arb_printd(err, 20); flint_printf("\n");
-        flint_printf("n = %wd*10^%wd\n", k, m);
 
-        flint_printf("updating grid sigma (iter=%wd/%wd)...\n",
-                iter, itermax);
         p->sigma_grid = _update_grid_sigma(p);
         _get_sum_of_errors(err, p);
-        flint_printf("\n");
-        flint_printf("sigma_grid = %wd\n", p->sigma_grid);
-        flint_printf("err = "); arb_printd(err, 20); flint_printf("\n");
-        flint_printf("n = %wd*10^%wd\n", k, m);
 
-        /* Requires the interpolation error. */
-        flint_printf("updating J (iter=%wd/%wd)...\n", iter, itermax);
         p->J = _binary_search_J(p, interpolation_error, 1, Jmax);
         _get_sum_of_errors(err, p);
-        flint_printf("\n");
-        flint_printf("J = %wd\n", p->J);
-        flint_printf("err = "); arb_printd(err, 20); flint_printf("\n");
-        flint_printf("n = %wd*10^%wd\n", k, m);
 
-        /* Requires the interpolation error. */
-        flint_printf("updating K (iter=%wd/%wd)...\n", iter, itermax);
         p->K = _binary_search_K(p, interpolation_error, 1, 500);
         _get_sum_of_errors(err, p);
-        flint_printf("\n");
-        flint_printf("K = %wd\n", p->K);
-        flint_printf("err = "); arb_printd(err, 20); flint_printf("\n");
-        flint_printf("n = %wd*10^%wd\n", k, m);
 
-        if (iter > 1 &&
-            p->J == prev->J &&
+        if (p->J == prev->J &&
             p->K == prev->K &&
             p->hnum == prev->hnum &&
             p->sigma_grid == prev->sigma_grid)
         {
             break;
         }
-
-        agg_set(prev, p);
     }
-    flint_printf("\n");
 
-    flint_printf("*** summary ***\n");
-    agg_printf(p);
-
-    _get_sum_of_errors(err, p);
-    flint_printf("grid error estimate = ");
-    arb_printd(err, 20); flint_printf("\n");
-
-    _get_interpolation_error(err, p);
-    flint_printf("interpolation error estimate = ");
-    arb_printd(err, 20); flint_printf("\n");
-
-    flint_printf("\n");
+    agg_print_table_row(p);
+    agg_set(res, p);
 
 finish:
 
     arb_clear(err);
     arb_clear(interpolation_error);
+    arb_clear(g);
+    fmpz_clear(u);
     agg_clear(p);
     agg_clear(prev);
+}
+
+void _fmpz_k_1em(fmpz_t n, slong k, slong m)
+{
+    fmpz_set_ui(n, 10);
+    fmpz_pow_ui(n, n, m);
+    fmpz_mul_ui(n, n, k);
 }
 
 int main()
 {
     fmpz_t n;
-    slong m, k;
+    slong i, k, m;
+    agg_t p;
+    const slong mstart = 17;
+    const slong mstop = 24;
+    const slong ncoeffs = 3;
+    const slong coeffs[] = {1, 2, 5};
 
     /*
      * Disable the stdout buffer so that no message is lost
@@ -818,20 +814,34 @@ int main()
      */
     setbuf(stdout, NULL);
 
+    agg_print_table_header();
+
     fmpz_init(n);
+    agg_init(p);
 
     /* n = k * 10^m */
+    _fmpz_k_1em(n, 1, mstart);
+    _get_params_A16_n1e17(
+            &p->T, &p->A, &p->B, &p->prec, &p->sigma_grid,
+            &p->K, &p->J, &p->hnum, &p->hden,
+            &p->sigma_interp, &p->Hnum, &p->Hden, &p->Ns_max, n);
+    arb_set_fmpz(&p->t0, &p->T);
+
+    for (m = mstart; m <= mstop; m++)
     {
-        k = 1;
-        m = 22;
-        flint_printf("trying n = %wd*10^%wd\n", k, m);
-        fmpz_set_ui(n, 10);
-        fmpz_pow_ui(n, n, m);
-        fmpz_mul_ui(n, n, k);
-        run(n, k, m);
+        slong end = m < mstop ? ncoeffs : 1;
+        for (i = 0; i < end; i++)
+        {
+            k = coeffs[i];
+            _fmpz_k_1em(n, k, m);
+            flint_fprintf(stderr, "%wd*10^%wd ", k, m);
+            run(p, p, n, k, m);
+            flint_fprintf(stderr, "\n");
+        }
     }
 
     fmpz_clear(n);
+    agg_clear(p);
 
     flint_cleanup();
     return 0;
