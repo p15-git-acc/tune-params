@@ -602,6 +602,51 @@ _update_grid_sigma(const agg_t agg)
 
 /* all params are output except for n which indicates nth zero */
 static void
+_get_params_A8_n1e4(fmpz_t T, slong *A, slong *B, slong *prec,
+        slong *sigma_grid, slong *K, slong *J,
+        slong *hnum, slong *hden,
+        slong *sigma_interp, slong *Hnum, slong *Hden, slong *Ns_max,
+        const fmpz_t n)
+{
+    fmpz_t k;
+    arb_t g;
+    slong Abits, Bbits;
+
+    fmpz_init(k);
+    arb_init(g);
+
+    *prec = 64;
+    *Ns_max = 200;
+
+    /* Estimate the height of the nth zero using gram points --
+     * it's predicted to fall between g(n-2) and g(n-1). */
+    fmpz_sub_ui(k, n, 2);
+    acb_dirichlet_gram_point(g, k, NULL, NULL, *prec);
+    _arb_get_lbound_fmpz(T, g, *prec);
+
+    Abits = 3;
+    Bbits = 12;
+    *A = 1 << Abits;
+    *B = 1 << Bbits;
+
+    *J = 69;
+    *K = 61;
+
+    *hnum = 348;
+    *hden = 4;
+
+    *sigma_grid = 1543;
+
+    *Hnum = 72;
+    *Hden = 64;
+    *sigma_interp = 27;
+
+    fmpz_clear(k);
+    arb_clear(g);
+}
+
+/* all params are output except for n which indicates nth zero */
+static void
 _get_params_A16_n1e17(fmpz_t T, slong *A, slong *B, slong *prec,
         slong *sigma_grid, slong *K, slong *J,
         slong *hnum, slong *hden,
@@ -803,8 +848,8 @@ int main()
     fmpz_t n;
     slong i, k, m;
     agg_t p;
-    const slong mstart = 17;
-    const slong mstop = 24;
+    const slong mstart = 4;
+    const slong mstop = 17;
     const slong ncoeffs = 3;
     const slong coeffs[] = {1, 2, 5};
 
@@ -821,7 +866,7 @@ int main()
 
     /* n = k * 10^m */
     _fmpz_k_1em(n, 1, mstart);
-    _get_params_A16_n1e17(
+    _get_params_A8_n1e4(
             &p->T, &p->A, &p->B, &p->prec, &p->sigma_grid,
             &p->K, &p->J, &p->hnum, &p->hden,
             &p->sigma_interp, &p->Hnum, &p->Hden, &p->Ns_max, n);
