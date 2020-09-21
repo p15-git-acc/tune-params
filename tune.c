@@ -107,16 +107,16 @@ agg_set(agg_t res, const agg_t p)
 static void
 agg_print_table_header()
 {
-    flint_printf("A\tB\tnsmax\tK\tgrid\tinterp\tlogT\tlogJ\th\tH\n");
+    flint_printf("k\tm\tA\tB\tnsmax\tK\tgrid\tinterp\tlogT\tlogJ\th\tH\n");
 }
 
 static void
-agg_print_table_row(const agg_t p)
+agg_print_table_row(const agg_t p, slong k, slong m)
 {
     arb_t x;
     arb_init(x);
-    flint_printf("%ld\t%ld\t%ld\t%ld\t%ld\t%ld\t",
-            p->A, p->B, p->Ns_max, p->K, p->sigma_grid, p->sigma_interp);
+    flint_printf("%ld\t%ld\t%ld\t%ld\t%ld\t%ld\t%ld\t%ld\t",
+            k, m, p->A, p->B, p->Ns_max, p->K, p->sigma_grid, p->sigma_interp);
     arb_log(x, &p->t0, p->prec);
     flint_printf("%lf\t", arf_get_d(arb_midref(x), ARF_RND_NEAR));
     flint_printf("%lf\t", log(p->J));
@@ -823,7 +823,7 @@ void run(agg_t res, const agg_t p_initial, const fmpz_t n, slong k, slong m)
         }
     }
 
-    agg_print_table_row(p);
+    agg_print_table_row(p, k, m);
     agg_set(res, p);
 
 finish:
@@ -848,8 +848,8 @@ int main()
     fmpz_t n;
     slong i, k, m;
     agg_t p;
-    const slong mstart = 4;
-    const slong mstop = 17;
+    const slong mstart = 7;
+    const slong mstop = 15;
     const slong ncoeffs = 3;
     const slong coeffs[] = {1, 2, 5};
 
@@ -865,7 +865,9 @@ int main()
     agg_init(p);
 
     /* n = k * 10^m */
-    _fmpz_k_1em(n, 1, mstart);
+    k = 1;
+    m = mstart;
+    _fmpz_k_1em(n, k, m);
     _get_params_A8_n1e4(
             &p->T, &p->A, &p->B, &p->prec, &p->sigma_grid,
             &p->K, &p->J, &p->hnum, &p->hden,
