@@ -107,16 +107,16 @@ agg_set(agg_t res, const agg_t p)
 static void
 agg_print_table_header()
 {
-    flint_printf("A\tB\tnsmax\tK\tgrid\tinterp\tlogT\tlogJ\th\tH\n");
+    flint_printf("k\tm\tA\tB\tnsmax\tK\tgrid\tinterp\tlogT\tlogJ\th\tH\n");
 }
 
 static void
-agg_print_table_row(const agg_t p)
+agg_print_table_row(const agg_t p, slong k, slong m)
 {
     arb_t x;
     arb_init(x);
-    flint_printf("%ld\t%ld\t%ld\t%ld\t%ld\t%ld\t",
-            p->A, p->B, p->Ns_max, p->K, p->sigma_grid, p->sigma_interp);
+    flint_printf("%ld\t%ld\t%ld\t%ld\t%ld\t%ld\t%ld\t%ld\t",
+            k, m, p->A, p->B, p->Ns_max, p->K, p->sigma_grid, p->sigma_interp);
     arb_log(x, &p->t0, p->prec);
     flint_printf("%lf\t", arf_get_d(arb_midref(x), ARF_RND_NEAR));
     flint_printf("%lf\t", log(p->J));
@@ -872,7 +872,7 @@ void run(agg_t res, const agg_t p_initial, const fmpz_t n, slong k, slong m)
         }
     }
 
-    agg_print_table_row(p);
+    agg_print_table_row(p, k, m);
     agg_set(res, p);
 
 finish:
