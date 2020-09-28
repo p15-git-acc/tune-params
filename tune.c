@@ -14,7 +14,7 @@
 static void
 check_arb_accuracy(const arb_t x, const char *name)
 {
-    slong required_bits = 16;
+    const slong required_bits = 16;
     slong bits = arb_rel_accuracy_bits(x);
     if (bits < required_bits)
     {
@@ -39,7 +39,7 @@ _arb_inv_si(arb_t res, slong n, slong prec)
 }
 
 static void
-_arb_get_lbound_fmpz(fmpz_t z, const arb_t x, slong prec)
+_arb_get_approx_floor_fmpz(fmpz_t z, const arb_t x, slong prec)
 {
     arf_t u;
     arf_init(u);
@@ -622,7 +622,7 @@ _get_params_A8_n1e4(fmpz_t T, slong *A, slong *B, slong *prec,
      * it's predicted to fall between g(n-2) and g(n-1). */
     fmpz_sub_ui(k, n, 2);
     acb_dirichlet_gram_point(g, k, NULL, NULL, *prec);
-    _arb_get_lbound_fmpz(T, g, *prec);
+    _arb_get_approx_floor_fmpz(T, g, *prec);
 
     Abits = 3;
     Bbits = 12;
@@ -670,7 +670,7 @@ _get_params_A16_n1e17(fmpz_t T, slong *A, slong *B, slong *prec,
      * it's predicted to fall between g(n-2) and g(n-1). */
     fmpz_sub_ui(k, n, 2);
     acb_dirichlet_gram_point(g, k, NULL, NULL, *prec);
-    _arb_get_lbound_fmpz(T, g, *prec);
+    _arb_get_approx_floor_fmpz(T, g, *prec);
 
     Abits = 4;
     Bbits = 13;
@@ -723,7 +723,7 @@ _get_params_A16_n1e22(fmpz_t T, slong *A, slong *B, slong *prec,
      * it's predicted to fall between g(n-2) and g(n-1). */
     fmpz_sub_ui(k, n, 2);
     acb_dirichlet_gram_point(g, k, NULL, NULL, *prec);
-    _arb_get_lbound_fmpz(T, g, *prec);
+    _arb_get_approx_floor_fmpz(T, g, *prec);
 
     Abits = 4;
     Bbits = 13;
@@ -741,6 +741,49 @@ _get_params_A16_n1e22(fmpz_t T, slong *A, slong *B, slong *prec,
     *Hnum = 52;
     *Hden = 64;
     *sigma_interp = 19;
+
+    fmpz_clear(k);
+    arb_clear(g);
+}
+
+static void
+_get_params_A4_n1e4(agg_ptr p, const fmpz_t n)
+{
+    fmpz_t k;
+    arb_t g;
+    slong Abits, Bbits;
+
+    fmpz_init(k);
+    arb_init(g);
+
+    /* Default prec. */
+    p->prec = 64;
+
+    /* Default max number of interpolation points on either side. */
+    p->Ns_max = 100;
+
+    /* Estimate the height of the nth zero using gram points --
+     * it's predicted to fall between g(n-2) and g(n-1). */
+    fmpz_sub_ui(k, n, 2);
+    acb_dirichlet_gram_point(g, k, NULL, NULL, p->prec);
+    _arb_get_approx_floor_fmpz(&p->T, g, p->prec);
+
+    Abits = 2;
+    Bbits = 6;
+    p->A = 1 << Abits;
+    p->B = 1 << Bbits;
+
+    p->J = 1000;
+    p->K = 28;
+
+    p->hnum = 3*64;
+    p->hden = 1*64;
+
+    p->sigma_grid = 31;
+
+    p->Hnum = 1*64;
+    p->Hden = 1*64;
+    p->sigma_interp = 21;
 
     fmpz_clear(k);
     arb_clear(g);
@@ -768,7 +811,7 @@ void run(agg_t res, const agg_t p_initial, const fmpz_t n, slong k, slong m)
     /* set T, t0, Jmax */
     fmpz_sub_ui(u, n, 2);
     acb_dirichlet_gram_point(g, u, NULL, NULL, p->prec);
-    _arb_get_lbound_fmpz(&p->T, g, p->prec);
+    _arb_get_approx_floor_fmpz(&p->T, g, p->prec);
     arb_set_fmpz(&p->t0, &p->T);
     fmpz_sqrt(u, &p->T);
     Jmax = 1000 + 4*fmpz_get_ui(u);
@@ -794,8 +837,10 @@ void run(agg_t res, const agg_t p_initial, const fmpz_t n, slong k, slong m)
     p->J = _binary_search_J(p, interpolation_error, 1, Jmax);
     _get_sum_of_errors(err, p);
 
+    /*
     p->K = _binary_search_K(p, interpolation_error, 1, 500);
     _get_sum_of_errors(err, p);
+    */
 
     for (iter = 1; iter <= itermax; iter++)
     {
@@ -805,14 +850,18 @@ void run(agg_t res, const agg_t p_initial, const fmpz_t n, slong k, slong m)
         p->hnum = _update_hnum(p);
         _get_sum_of_errors(err, p);
 
+        /*
         p->sigma_grid = _update_grid_sigma(p);
         _get_sum_of_errors(err, p);
+        */
 
         p->J = _binary_search_J(p, interpolation_error, 1, Jmax);
         _get_sum_of_errors(err, p);
 
+        /*
         p->K = _binary_search_K(p, interpolation_error, 1, 500);
         _get_sum_of_errors(err, p);
+        */
 
         if (p->J == prev->J &&
             p->K == prev->K &&
@@ -849,9 +898,11 @@ int main()
     slong i, k, m;
     agg_t p;
     const slong mstart = 4;
-    const slong mstop = 17;
-    const slong ncoeffs = 3;
-    const slong coeffs[] = {1, 2, 5};
+    const slong mstop = 5;
+    //const slong ncoeffs = 3;
+    //const slong coeffs[] = {1, 2, 5};
+    const slong ncoeffs = 9;
+    const slong coeffs[] = {1, 2, 3, 4, 5, 6, 7, 8, 9};
 
     /*
      * Disable the stdout buffer so that no message is lost
@@ -866,10 +917,13 @@ int main()
 
     /* n = k * 10^m */
     _fmpz_k_1em(n, 1, mstart);
-    _get_params_A8_n1e4(
+    /*
+    _get_params_A4_n1e4(
             &p->T, &p->A, &p->B, &p->prec, &p->sigma_grid,
             &p->K, &p->J, &p->hnum, &p->hden,
             &p->sigma_interp, &p->Hnum, &p->Hden, &p->Ns_max, n);
+    */
+    _get_params_A4_n1e4(p, n);
     arb_set_fmpz(&p->t0, &p->T);
 
     for (m = mstart; m <= mstop; m++)
@@ -879,7 +933,7 @@ int main()
         {
             k = coeffs[i];
             _fmpz_k_1em(n, k, m);
-            flint_fprintf(stderr, "%wd*10^%wd ", k, m);
+            flint_fprintf(stderr, "%ld*10^%ld ", k, m);
             run(p, p, n, k, m);
             flint_fprintf(stderr, "\n");
         }
